@@ -2,7 +2,8 @@
 using ModelContextProtocol.Protocol.Transport;
 using Microsoft.Extensions.AI;
 using OpenAI;
-
+using Azure.AI.OpenAI;
+using Azure.Identity;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Microsoft.Extensions.Logging;
@@ -26,10 +27,15 @@ Console.WriteLine("Connecting client to MCP 'everything' server");
 
 // Create OpenAI client (or any other compatible with IChatClient)
 // Provide your own OPENAI_API_KEY via an environment variable.
-var openAIClient = new OpenAIClient(Environment.GetEnvironmentVariable("OPENAI_API_KEY")).GetChatClient("gpt-4o-mini");
+//var openAIClient = new OpenAIClient(Environment.GetEnvironmentVariable("OPENAI_API_KEY")).GetChatClient("gpt-4o-mini");
+
+var azureClient = new AzureOpenAIClient(
+    new Uri("https://openai-shared.openai.azure.com/"),
+    new DefaultAzureCredential())
+    .GetChatClient("gpt-4o");
 
 // Create a sampling client.
-using IChatClient samplingClient = openAIClient.AsIChatClient()
+using IChatClient samplingClient = azureClient.AsIChatClient()
     .AsBuilder()
     .UseOpenTelemetry(loggerFactory: loggerFactory, configure: o => o.EnableSensitiveData = true)
     .Build();
@@ -37,9 +43,10 @@ using IChatClient samplingClient = openAIClient.AsIChatClient()
 var mcpClient = await McpClientFactory.CreateAsync(
     new StdioClientTransport(new()
     {
-        Command = "npx",
-        Arguments = ["-y", "--verbose", "@modelcontextprotocol/server-everything"],
-        Name = "Everything",
+        Command = @"D:\repo\azure-mcp-pr\src\.dist\azmcp.exe",
+        Arguments = ["server", "start"],
+        EnvironmentVariables = new Dictionary<string, string> { { "OTEL_SDK_DISABLED", "false" }, {"Logging:LogLevel:Azure", "Debug"} },
+        Name = "azmcp",
     }),
     clientOptions: new()
     {
@@ -55,10 +62,14 @@ foreach (var tool in tools)
     Console.WriteLine($"  {tool}");
 }
 
+foreach (var tool in tools)
+{
+    Console.WriteLine($"  {tool.Name}: {tool.Description.Length} {tool.Description.Substring(0, 80)}...");
+}
 Console.WriteLine();
 
 // Create an IChatClient that can use the tools.
-using IChatClient chatClient = openAIClient.AsIChatClient()
+using IChatClient chatClient = azureClient.AsIChatClient()
     .AsBuilder()
     .UseFunctionInvocation()
     .UseOpenTelemetry(loggerFactory: loggerFactory, configure: o => o.EnableSensitiveData = true)
